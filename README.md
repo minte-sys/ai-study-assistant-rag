@@ -1,96 +1,113 @@
 # AI Study Assistant
 
-Upload a lecture PDF and ask questions about its contents. The app retrieves relevant text and uses an AI model to generate an answer, with page references from the retrieved passages.
+A web application for asking questions about PDF lecture notes. It retrieves relevant passages and sends them to an OpenAI chat model, then displays the answer alongside the retrieved page references.
 
 ## Features
 
-- PDF upload with size and format validation
-- Page-aware text extraction and overlapping chunks
-- API-generated embeddings with local cosine-similarity search
-- Retrieval-augmented answers and source-page references
-- Responsive chat interface with loading and error states
+- PDF upload with format validation and a 15 MB size limit
+- Text extraction that preserves document names and page numbers
+- Overlapping text chunks and API-generated embeddings
+- Local cosine-similarity search using NumPy
+- Document-based answers with retrieved source pages
+- Responsive React interface with loading and error states
 
-**Scope:** One active PDF per backend process. The document index stays in memory and resets when the server restarts. Text-based PDFs work; scanned images require OCR, which is not included. Sources list retrieved pages; they are leads for verification, not proof that every sentence is supported. An OpenAI API key and network access are required; API usage can incur charges.
+## How it works
 
-## Architecture
+PyMuPDF extracts text separately from each page. The backend splits it into passages of approximately 1,100 characters with 180 characters of overlap. Each passage retains its filename and page number.
+
+OpenAI generates embeddings for the passages and the question. The backend normalizes the vectors and ranks passages by cosine similarity. It sends the four highest-ranked passages to the chat model as context. Source references come from the retrieved passages.
 
 ```mermaid
 flowchart TD
-    A[React interface] --> B[FastAPI]
-    B --> C[PDF page extraction]
-    C --> D[Page-aware chunks]
-    D --> E[OpenAI embeddings]
-    E --> F[Local cosine search]
-    F --> G[Relevant context]
-    G --> H[OpenAI chat model]
-    H --> I[Answer and retrieved pages]
+    A[PDF upload] --> B[Page extraction and chunking]
+    B --> C[OpenAI embeddings]
+    C --> D[Local vector index]
+    E[Question] --> F[Query embedding]
+    F --> G[Cosine similarity search]
+    D --> G
+    G --> H[Context and chat model]
+    H --> I[Answer and page references]
 ```
 
-## How RAG works
+## Stack
 
-On upload, PyMuPDF extracts text separately from each page. Text is split into roughly 1,100-character passages with 180-character overlap, preserving page numbers and context near boundaries. OpenAI turns passages into vectors; NumPy normalizes them. A question is embedded with the same model and compared against the saved vectors using cosine similarity. The top four passages are sent to the chat model along with instructions to answer from the document alone. The response displays unique page numbers from those retrieved passages.
+Python, FastAPI, PyMuPDF, NumPy, httpx, OpenAI API, React, Vite, JavaScript, and CSS.
 
-## Technologies
+## Setup
 
-Python, FastAPI, PyMuPDF, NumPy, httpx, OpenAI API, React, Vite, JavaScript, CSS.
+Requires Python 3.10+, Node.js 20+, npm, and an OpenAI API key. Run the backend and frontend in separate terminals from the repository root.
 
-## Installation
+### Backend: Windows PowerShell
 
-Requires Python 3.10+, Node.js 20+, npm, and an OpenAI API key.
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
 
-### Backend
+Set `OPENAI_API_KEY` in `backend/.env`, then start the server:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+### Backend: macOS or Linux
 
 ```bash
 cd backend
-python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Windows PowerShell: Copy-Item .env.example .env
-# Edit backend/.env and set OPENAI_API_KEY
-uvicorn app.main:app --reload
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Check `http://localhost:8000/health` for `{"status":"ok"}`.
+Set `OPENAI_API_KEY` in `backend/.env`, then start the server:
 
-### Frontend (second terminal)
+```bash
+.venv/bin/python -m uvicorn app.main:app --reload
+```
+
+The backend runs at `http://localhost:8000`. `GET /health` returns `{"status":"ok"}`.
+
+### Frontend
+
+In a second terminal, from the repository root:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. If the backend runs elsewhere, set `VITE_API_URL` for the frontend. Set `FRONTEND_ORIGIN` in backend `.env` if the frontend origin changes. Do not place the API key in Vite variables or commit `.env`.
+Open `http://localhost:5173`. Upload a text-based PDF and enter a question after processing completes.
+
+`VITE_API_URL` configures the frontend's backend address. `FRONTEND_ORIGIN` in `backend/.env` configures the allowed frontend origin. API keys belong only in the backend environment; `.env` is excluded by `.gitignore`.
 
 ## API
 
 | Endpoint | Input | Output |
 | --- | --- | --- |
 | `GET /health` | None | Status |
-| `POST /upload` | Multipart `file` PDF, max 15 MB | Filename, text-page count, chunk count |
-| `POST /ask` | JSON `{"question":"..."}` | Answer and retrieved document/page references |
+| `POST /upload` | Multipart PDF field named `file` | Filename, text-page count, chunk count |
+| `POST /ask` | JSON with a `question` field | Answer and retrieved document/page references |
 
-Try a text PDF with a fact you can verify on a known page. Ask a question about it and inspect the returned pages. Ask an unrelated question to check whether the model acknowledges missing information. An API key is necessary to run this live workflow.
+## Testing
 
-## Screenshots
+From the `backend` directory, run the offline integration check:
 
-### Upload interface
+```powershell
+.\.venv\Scripts\python.exe -m tests.test_flow
+```
 
-[Add screenshot after running the app]
+On macOS or Linux, use `.venv/bin/python -m tests.test_flow`.
 
-### Answer with source pages
+The test covers health, invalid uploads, two-page PDF extraction, retrieval, and source-page metadata. Embeddings and answers are mocked in this test; live OpenAI requests require a separate manual check with an API key.
 
-[Add screenshot after asking about an uploaded PDF]
+## Limitations
 
-## Future improvements
-
-Authentication, multiple documents, persistent indexes, conversation history, PostgreSQL, flashcards, quizzes, Docker, and cloud deployment are future ideas, not current features.
-
-## GitHub details
-
-Repository name: `ai-study-assistant-rag`
-
-Description: AI study assistant that uses RAG to answer questions from uploaded lecture PDFs with source page references.
-
-Topics: `rag`, `fastapi`, `react`, `pdf`, `embeddings`, `semantic-search`, `portfolio-project`
+- One active PDF is shared by the backend process.
+- The index is stored in memory and resets when the server restarts.
+- Scanned PDFs require OCR, which is not implemented.
+- The interface displays the current session's messages; earlier messages are not included in model requests.
+- Source pages identify retrieved passages and do not guarantee support for every sentence in an answer.
+- Embeddings and retrieved text are sent to OpenAI. Network access is required, and API usage may incur charges.
